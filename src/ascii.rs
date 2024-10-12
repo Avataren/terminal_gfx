@@ -9,7 +9,7 @@ pub fn angle_to_ascii(angle: f32) -> char {
         a if (-157.5..-112.5).contains(&a) => '/',
         a if (-112.5..-67.5).contains(&a) => '─',
         a if (-67.5..-22.5).contains(&a) => '\\',
-        _ => '?',
+        _ => 'x',
     }
 }
 

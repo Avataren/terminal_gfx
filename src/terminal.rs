@@ -6,20 +6,21 @@ use lazy_static::lazy_static;
 use std::sync::Once;
 
 const COLOR_PAIRS: usize = 216; // 6 levels for each R, G, B (6^3 = 216)
+const ANGLE_TO_ASCII_THRESHOLD: f32 = 60.0;
 
 lazy_static! {
     static ref COLOR_PAIRS_INITIALIZED: Once = Once::new();
 }
 
 fn supports_true_color() -> bool {
-    env::var("COLORTERM").map_or(false, |val| val == "truecolor" || val == "24bit")
+    false
+    // env::var("COLORTERM").map_or(false, |val| val == "truecolor" || val == "24bit")
 }
 
 fn init_color_pairs() {
     COLOR_PAIRS_INITIALIZED.call_once(|| {
         start_color();
         use_default_colors();
-
         for i in 0..COLOR_PAIRS {
             let r = (i / 36) as i16 * 200;
             let g = ((i / 6) % 6) as i16 * 200;
@@ -38,28 +39,59 @@ fn get_closest_color_pair(r: u8, g: u8, b: u8) -> i16 {
     (index.min(COLOR_PAIRS - 1) + 1) as i16
 }
 
+fn average_neighbor_colors(fb: &Framebuffer, x: usize, y: usize) -> (u8, u8, u8) {
+    let mut r_sum = 0;
+    let mut g_sum = 0;
+    let mut b_sum = 0;
+    let mut count = 0;
+
+    for dy in -1..=1 {
+        for dx in -1..=1 {
+            let nx = x as i32 + dx;
+            let ny = y as i32 + dy;
+            if nx >= 0 && nx < fb.width as i32 && ny >= 0 && ny < fb.height as i32 {
+                let pixel = fb.get_pixel(nx as usize, ny as usize);
+                let (r, g, b) = pixel.to_rgb();
+                r_sum += r as u32;
+                g_sum += g as u32;
+                b_sum += b as u32;
+                count += 1;
+            }
+        }
+    }
+
+    (
+        (r_sum / count) as u8,
+        (g_sum / count) as u8,
+        (b_sum / count) as u8,
+    )
+}
+
 pub fn draw_colored_frame(fb: &Framebuffer, gradients: &[(f32, f32)]) {
     let is_true_color = supports_true_color();
-
     if !is_true_color {
         init_color_pairs();
     }
 
     for y in 0..fb.height {
         for x in 0..fb.width {
-            let pixel = fb.get_pixel(x, y);
             let (magnitude, angle) = gradients[y * fb.width + x];
             let brightness = fb.get_brightness(x, y);
-
-            let ch = if magnitude > 100.0 {
+            let ch = if magnitude > ANGLE_TO_ASCII_THRESHOLD {
                 angle_to_ascii(angle)
             } else {
                 brightness_to_ascii(brightness, false)
             };
 
             mv(y as i32, x as i32);
+            
+            let (r, g, b) = if magnitude > ANGLE_TO_ASCII_THRESHOLD {
+                // Only use average_neighbor_colors when angle_to_ascii is called
+                average_neighbor_colors(fb, x, y)
+            } else {
+                fb.get_pixel(x, y).to_rgb()
+            };
 
-            let (r, g, b) = pixel.to_rgb();
             if is_true_color {
                 addstr(&format!("\x1b[38;2;{};{};{}m{}\x1b[0m", r, g, b, ch));
             } else {
@@ -70,6 +102,5 @@ pub fn draw_colored_frame(fb: &Framebuffer, gradients: &[(f32, f32)]) {
             }
         }
     }
-
     refresh();
 }

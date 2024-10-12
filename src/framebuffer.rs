@@ -10,7 +10,7 @@ pub struct Framebuffer {
 
 impl Framebuffer {
     pub fn new(width: usize, height: usize) -> Self {
-        let initial_pixel = Pixel { r: 0, g: 0, b: 0, alpha: 255 };
+        let initial_pixel = Pixel { r: 0, g: 0, b: 0, a: 255 };
         Framebuffer {
             width,
             height,
@@ -21,7 +21,7 @@ impl Framebuffer {
     }
 
     pub fn clear(&mut self) {
-        let default_pixel = Pixel { r: 0, g: 0, b: 0, alpha: 255 };
+        let default_pixel = Pixel { r: 0, g: 0, b: 0, a: 255 };
         self.data.fill(default_pixel);
     }
 
@@ -40,6 +40,34 @@ impl Framebuffer {
                 let brightness = (0.299 * pixel.r as f32 + 0.587 * pixel.g as f32 + 0.114 * pixel.b as f32) as u8;
                 let posterized_brightness = Self::posterize_brightness(brightness, posterize_levels);
                 self.brightness_buffer[y * self.width + x] = posterized_brightness;
+            }
+        }
+    }
+
+    pub fn increase_brightness(&mut self, brightness_factor: f32) {
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let brightness = self.get_brightness(x, y) as f32;
+                
+                // Apply brightness adjustment
+                let brightened = (brightness * brightness_factor).clamp(0.0, 255.0);
+
+                // Store the result back in the brightness buffer
+                self.brightness_buffer[y * self.width + x] = brightened as u8;
+            }
+        }
+    }
+
+    pub fn increase_contrast(&mut self, contrast_factor: f32) {
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let brightness = self.get_brightness(x, y) as f32 / 255.0;
+
+                // Apply contrast transformation
+                let contrasted = ((brightness - 0.5) * contrast_factor + 0.5).clamp(0.0, 1.0);
+
+                // Convert back to u8 and store in the brightness buffer
+                self.brightness_buffer[y * self.width + x] = (contrasted * 255.0) as u8;
             }
         }
     }
