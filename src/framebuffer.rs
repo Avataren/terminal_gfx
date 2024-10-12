@@ -1,5 +1,42 @@
 use crate::pixel::Pixel;
 
+use lazy_static::lazy_static;
+
+pub struct ColorPalette {
+    colors: Vec<(u8, u8, u8)>,
+}
+
+
+impl ColorPalette {
+    pub fn new() -> Self {
+        let colors: Vec<(u8, u8, u8)> = (0..216)
+            .map(|i| {
+                let r = (i / 36) * 51;
+                let g = ((i / 6) % 6) * 51;
+                let b = (i % 6) * 51;
+                (r as u8, g as u8, b as u8)
+            })
+            .collect();
+        ColorPalette { colors }
+    }
+
+    pub fn closest_color(&self, r: u8, g: u8, b: u8) -> (u8, u8, u8) {
+        *self.colors
+            .iter()
+            .min_by_key(|&&(cr, cg, cb)| {
+                let dr = (r as i32 - cr as i32).abs();
+                let dg = (g as i32 - cg as i32).abs();
+                let db = (b as i32 - cb as i32).abs();
+                dr * dr + dg * dg + db * db
+            })
+            .unwrap()
+    }
+}
+
+lazy_static! {
+    static ref TERMINAL_COLORS: ColorPalette = ColorPalette::new();
+}
+
 pub struct Framebuffer {
     pub width: usize, 
     pub height: usize,
@@ -31,6 +68,40 @@ impl Framebuffer {
 
     pub fn set_pixel(&mut self, x: usize, y: usize, pixel: Pixel) {
         self.data[y * self.width + x] = pixel;
+    }
+
+    pub fn apply_bayer_dithering(&mut self) {
+        const BAYER_MATRIX: [[f32; 2]; 2] = [
+            [0.0 / 4.0, 2.0 / 4.0],
+            [3.0 / 4.0, 1.0 / 4.0],
+        ];
+
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let pixel = self.get_pixel(x, y);
+                let (r, g, b) = (pixel.r as f32, pixel.g as f32, pixel.b as f32);
+
+                // Apply Bayer matrix threshold
+                let threshold = BAYER_MATRIX[y % 2][x % 2] * 255.0;
+                
+                // Apply dithering with reduced intensity
+                let dither_factor = 0.1; // Adjust this value to control dithering intensity
+                let r_dithered = (r + (threshold - 128.0) * dither_factor).clamp(0.0, 255.0) as u8;
+                let g_dithered = (g + (threshold - 128.0) * dither_factor).clamp(0.0, 255.0) as u8;
+                let b_dithered = (b + (threshold - 128.0) * dither_factor).clamp(0.0, 255.0) as u8;
+
+                // Find the closest terminal color
+                let closest_color = TERMINAL_COLORS.closest_color(r_dithered, g_dithered, b_dithered);
+
+                // Set the pixel to the closest terminal color
+                self.set_pixel(x, y, Pixel {
+                    r: closest_color.0,
+                    g: closest_color.1,
+                    b: closest_color.2,
+                    a: 255,
+                });
+            }
+        }
     }
 
     pub fn compute_brightness_buffer(&mut self, posterize_levels: u8) {

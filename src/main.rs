@@ -3,6 +3,7 @@ mod sobel;
 mod terminal;
 mod ascii;
 mod pixel;
+mod terminalbuffer;
 
 use ncurses::*;
 use std::env;
@@ -10,7 +11,7 @@ use crate::framebuffer::Framebuffer;
 use crate::sobel::compute_gradients;
 use crate::terminal::draw_colored_frame;
 use crate::pixel::Pixel;
-
+use crate::terminalbuffer::TerminalBuffer;
 use std::f32::consts::PI;
 use minifb::{Window, WindowOptions};
 use std::time::Instant;
@@ -44,7 +45,7 @@ fn main() {
     } else {
         None
     };
-
+    let mut terminal_buffer = TerminalBuffer::new(framebuffer.width, framebuffer.height);
     // Minifb buffer for graphical rendering (used only in debug mode)
     let mut buffer = if debug_mode {
         vec![0; framebuffer.width * framebuffer.height]
@@ -86,6 +87,7 @@ fn main() {
 
         if new_width_usize != prev_width || new_height_usize != prev_height {
             // Terminal has been resized, adjust framebuffer
+            terminal_buffer.resize(new_width as usize, new_height as usize);
             framebuffer = Framebuffer::new(new_width_usize, new_height_usize);
             prev_width = new_width_usize;
             prev_height = new_height_usize;
@@ -96,7 +98,7 @@ fn main() {
         if !paused {
             framebuffer.clear();  // Clear framebuffer before drawing
             update(delta_time, total_elapsed_time, &mut framebuffer);
-            draw(&mut framebuffer, &mut window, &mut buffer, debug_mode);        
+            draw(&mut framebuffer, &mut window, &mut buffer, &mut terminal_buffer, debug_mode);        
         }
         
 
@@ -138,16 +140,17 @@ fn draw_test_scene(framebuffer: &mut Framebuffer, total_time:f32)
 }
 
 // Drawing the frame
-fn draw(framebuffer: &mut Framebuffer, window: &mut Option<Window>, buffer: &mut Vec<u32>, debug_mode: bool) {
+fn draw(framebuffer: &mut Framebuffer, window: &mut Option<Window>, buffer: &mut Vec<u32>,  terminal_buffer:&mut TerminalBuffer, debug_mode: bool) {
     // Compute brightness buffer and gradients
     framebuffer.compute_brightness_buffer(255);
-    framebuffer.increase_brightness(4.0);
-    framebuffer.increase_contrast(1.5);
+    //framebuffer.increase_brightness(2.0);
+    framebuffer.increase_contrast(1.0);
     framebuffer.apply_sharpening(0.5);
+    framebuffer.apply_bayer_dithering();
     let gradients = compute_gradients(&framebuffer);
 
     // Render to terminal using ncurses
-    draw_colored_frame(&framebuffer, &gradients);
+    draw_colored_frame(&framebuffer, &gradients, terminal_buffer);
 
     // If in debug mode, render to minifb window as well
     if debug_mode {

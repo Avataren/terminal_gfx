@@ -1,12 +1,13 @@
 use ncurses::*;
 use crate::framebuffer::Framebuffer;
+use crate::terminalbuffer::TerminalBuffer;
 use crate::ascii::{angle_to_ascii, brightness_to_ascii};
-use std::env;
+// use std::env;
 use lazy_static::lazy_static;
 use std::sync::Once;
 
 const COLOR_PAIRS: usize = 216; // 6 levels for each R, G, B (6^3 = 216)
-const ANGLE_TO_ASCII_THRESHOLD: f32 = 60.0;
+const ANGLE_TO_ASCII_THRESHOLD: f32 = 40.0;
 
 lazy_static! {
     static ref COLOR_PAIRS_INITIALIZED: Once = Once::new();
@@ -59,7 +60,7 @@ fn average_neighbor_colors(fb: &Framebuffer, x: usize, y: usize) -> (u8, u8, u8)
             }
         }
     }
-
+    count /=2;
     (
         (r_sum / count) as u8,
         (g_sum / count) as u8,
@@ -67,11 +68,13 @@ fn average_neighbor_colors(fb: &Framebuffer, x: usize, y: usize) -> (u8, u8, u8)
     )
 }
 
-pub fn draw_colored_frame(fb: &Framebuffer, gradients: &[(f32, f32)]) {
+pub fn draw_colored_frame(fb: &Framebuffer, gradients: &[(f32, f32)], buffer: &mut TerminalBuffer) {
     let is_true_color = supports_true_color();
     if !is_true_color {
         init_color_pairs();
     }
+
+    buffer.clear();
 
     for y in 0..fb.height {
         for x in 0..fb.width {
@@ -83,24 +86,22 @@ pub fn draw_colored_frame(fb: &Framebuffer, gradients: &[(f32, f32)]) {
                 brightness_to_ascii(brightness, false)
             };
 
-            mv(y as i32, x as i32);
-            
             let (r, g, b) = if magnitude > ANGLE_TO_ASCII_THRESHOLD {
-                // Only use average_neighbor_colors when angle_to_ascii is called
                 average_neighbor_colors(fb, x, y)
             } else {
                 fb.get_pixel(x, y).to_rgb()
             };
 
             if is_true_color {
-                addstr(&format!("\x1b[38;2;{};{};{}m{}\x1b[0m", r, g, b, ch));
+                // Note: True color support might need to be handled differently with double buffering
+                buffer.set_char(x, y, ch, 0);
             } else {
                 let color_pair = get_closest_color_pair(r, g, b);
-                attron(COLOR_PAIR(color_pair));
-                addch(ch as u32);
-                attroff(COLOR_PAIR(color_pair));
+                buffer.set_char(x, y, ch, color_pair);
             }
         }
     }
-    refresh();
+
+    buffer.swap_buffers();
+    buffer.render();
 }
