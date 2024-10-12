@@ -141,7 +141,7 @@ fn draw_test_scene(framebuffer: &mut Framebuffer, total_time:f32)
 fn draw(framebuffer: &mut Framebuffer, window: &mut Option<Window>, buffer: &mut Vec<u32>, debug_mode: bool) {
     // Compute brightness buffer and gradients
     framebuffer.compute_brightness_buffer(255);
-    framebuffer.increase_brightness(2.0);
+    framebuffer.increase_brightness(4.0);
     framebuffer.increase_contrast(1.5);
     framebuffer.apply_sharpening(0.5);
     let gradients = compute_gradients(&framebuffer);
