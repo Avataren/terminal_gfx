@@ -120,13 +120,19 @@ fn update(delta_time:f32, total_time:f32, framebuffer: &mut Framebuffer)
 }
 
 fn draw_test_scene(framebuffer: &mut Framebuffer, total_time: f32) {
-    let aspect_ratio = framebuffer.width as f32 / framebuffer.height as f32;
+    // Assume a typical character aspect ratio of 2:1 (height:width)
+    let char_aspect_ratio = 0.5;
+    
+    // Adjust the aspect ratio to account for character shape
+    let aspect_ratio = (framebuffer.width as f32 / framebuffer.height as f32) * char_aspect_ratio;
+    
     let fov = 60.0f32.to_radians();
     let camera_pos = Vec3::new(0.0, 0.0, -4.0);
     let light_dir = Vec3::new(2.0, 1.0, -1.0).normalize();
 
     for y in 0..framebuffer.height {
         for x in 0..framebuffer.width {
+            // Adjust u and v calculations to account for the character aspect ratio
             let u = (x as f32 / framebuffer.width as f32) * 2.0 - 1.0;
             let v = ((framebuffer.height - y) as f32 / framebuffer.height as f32) * 2.0 - 1.0;
 
