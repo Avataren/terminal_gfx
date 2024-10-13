@@ -1,3 +1,15 @@
+use std::sync::{Arc, Mutex};
+
+use math::Smoothstep;
+use ncurses::*;
+use raymarch::{ray_march, update_globals};
+use std::env;
+use std::f32::consts::PI;
+use minifb::{Window, WindowOptions};
+use std::time::Instant;
+use rayon::prelude::*;
+
+mod raymarch;
 mod framebuffer;
 mod sobel;
 mod terminal;
@@ -6,19 +18,14 @@ mod pixel;
 mod terminalbuffer;
 mod math;
 
-use ncurses::*;
-use std::env;
 use crate::framebuffer::Framebuffer;
 use crate::sobel::compute_gradients;
 use crate::terminal::draw_colored_frame;
 use crate::pixel::Pixel;
 use crate::terminalbuffer::TerminalBuffer;
-use crate::math::Mat4;
-use crate::math::Vec3;
-use std::f32::consts::PI;
-use minifb::{Window, WindowOptions};
-use std::time::Instant;
+use crate::math::{Vec3, Vec2};
 
+const CHUNK_SIZE: usize = 8; 
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -30,7 +37,7 @@ fn main() {
     nodelay(stdscr(), true);  // Don't block the getch call
 
     // Create framebuffer and window dimensions based on terminal size
-    let mut framebuffer = create_framebuffer();
+    let framebuffer = Arc::new(Mutex::new(create_framebuffer()));
     let mut paused = false; // Track whether the animation is paused
     let target_fps = 60.0;
     let mut last_time = Instant::now();
@@ -39,8 +46,8 @@ fn main() {
     let mut window = if debug_mode {
         Some(Window::new(
             "Debug Framebuffer - ESC to exit",
-            framebuffer.width,
-            framebuffer.height,
+            framebuffer.lock().unwrap().width,
+            framebuffer.lock().unwrap().height,
             WindowOptions::default(),
         ).unwrap_or_else(|e| {
             panic!("{}", e);
@@ -48,10 +55,16 @@ fn main() {
     } else {
         None
     };
-    let mut terminal_buffer = TerminalBuffer::new(framebuffer.width, framebuffer.height);
+
+    let mut terminal_buffer = {
+        let fb = framebuffer.lock().unwrap();
+        TerminalBuffer::new(fb.width, fb.height)
+    };
+
     // Minifb buffer for graphical rendering (used only in debug mode)
     let mut buffer = if debug_mode {
-        vec![0; framebuffer.width * framebuffer.height]
+        let fb = framebuffer.lock().unwrap();
+        vec![0; fb.width * fb.height]
     } else {
         vec![]
     };
@@ -59,8 +72,13 @@ fn main() {
     let mut total_elapsed_time = 0.0;
     let start_time = Instant::now();
     
-    let mut prev_width = framebuffer.width;
-    let mut prev_height = framebuffer.height;
+    let mut prev_width;
+    let mut prev_height;
+    {
+        let fb = framebuffer.lock().unwrap();
+        prev_width = fb.width;
+        prev_height = fb.height;
+    }
 
     loop {
         // Calculate deltaTime
@@ -90,8 +108,9 @@ fn main() {
 
         if new_width_usize != prev_width || new_height_usize != prev_height {
             // Terminal has been resized, adjust framebuffer
-            terminal_buffer.resize(new_width as usize, new_height as usize);
-            framebuffer = Framebuffer::new(new_width_usize, new_height_usize);
+            terminal_buffer.resize(new_width_usize, new_height_usize);
+            let mut fb = framebuffer.lock().unwrap();
+            *fb = Framebuffer::new(new_width_usize, new_height_usize);
             prev_width = new_width_usize;
             prev_height = new_height_usize;
 
@@ -99,11 +118,13 @@ fn main() {
         }
 
         if !paused {
-            framebuffer.clear();  // Clear framebuffer before drawing
-            update(delta_time, total_elapsed_time, &mut framebuffer);
-            draw(&mut framebuffer, &mut window, &mut buffer, &mut terminal_buffer, debug_mode);        
+            {
+                let mut fb = framebuffer.lock().unwrap();
+                fb.clear();  // Clear framebuffer before drawing
+            }
+            update(delta_time, total_elapsed_time, &framebuffer);
+            draw(&framebuffer, &mut window, &mut buffer, &mut terminal_buffer, debug_mode);        
         }
-        
 
         // Sleep to maintain the target framerate
         let elapsed_time = now.elapsed().as_secs_f32();
@@ -114,130 +135,98 @@ fn main() {
     endwin();  // End the ncurses session
 }
 
-fn update(delta_time:f32, total_time:f32, framebuffer: &mut Framebuffer)
-{
+fn update(delta_time: f32, total_time: f32, framebuffer: &Arc<Mutex<Framebuffer>>) {
+    let fb = framebuffer.lock().unwrap();
+    let width = fb.width as f32;
+    let height = fb.height as f32;
+    drop(fb); // Release the lock
+
+    update_globals(Vec2::new(width, height), total_time);
     draw_test_scene(framebuffer, total_time);
 }
 
-fn draw_test_scene(framebuffer: &mut Framebuffer, total_time: f32) {
-    // Assume a typical character aspect ratio of 2:1 (height:width)
-    let char_aspect_ratio = 0.5;
-    
-    // Adjust the aspect ratio to account for character shape
-    let aspect_ratio = (framebuffer.width as f32 / framebuffer.height as f32) * char_aspect_ratio;
-    
-    let fov = 60.0f32.to_radians();
-    let camera_pos = Vec3::new(0.0, 0.0, -4.0);
-    let light_dir = Vec3::new(2.0, 1.0, -1.0).normalize();
+fn draw_test_scene(framebuffer: &Arc<Mutex<Framebuffer>>, total_time: f32) {
+    let fb = framebuffer.lock().unwrap();
+    let width = fb.width;
+    let height = fb.height;
+    drop(fb); // Release the lock
 
-    for y in 0..framebuffer.height {
-        for x in 0..framebuffer.width {
-            // Adjust u and v calculations to account for the character aspect ratio
-            let u = (x as f32 / framebuffer.width as f32) * 2.0 - 1.0;
-            let v = ((framebuffer.height - y) as f32 / framebuffer.height as f32) * 2.0 - 1.0;
+    let aspect_ratio = width as f32 / height as f32;
+    let time = total_time * 0.25;
+    let anim = 1.1 + 0.5 * (0.1 * total_time).cos().smoothstep(-0.3, 0.3);
 
-            let ray_dir = Vec3::new(
-                u * aspect_ratio * (fov / 2.0).tan(),
-                v * (fov / 2.0).tan(),
-                1.0,
-            ).normalize();
+    let chunks: Vec<_> = (0..height)
+        .step_by(CHUNK_SIZE)
+        .flat_map(|y| {
+            (0..width).step_by(CHUNK_SIZE).map(move |x| (x, y))
+        })
+        .collect();
 
-            let color = ray_march(camera_pos, ray_dir, total_time, light_dir);
-            framebuffer.set_pixel(x, y, color);
+    let chunk_results: Vec<Vec<Pixel>> = chunks.par_iter().map(|&(start_x, start_y)| {
+        let mut chunk_pixels = Vec::with_capacity(CHUNK_SIZE * CHUNK_SIZE);
+        for y in start_y..std::cmp::min(start_y + CHUNK_SIZE, height) {
+            for x in start_x..std::cmp::min(start_x + CHUNK_SIZE, width) {
+                let q = Vec2::new(x as f32, y as f32);
+                let p = (q * 2.0 - Vec2::new(width as f32, height as f32)) / height as f32;
+
+                // camera
+                let ro = Vec3::new(
+                    2.8 * (0.1 + 0.33 * time).cos(),
+                    0.4 + 0.30 * (0.37 * time).cos(),
+                    2.8 * (0.5 + 0.35 * time).cos()
+                );
+                let ta = Vec3::new(
+                    1.9 * (1.2 + 0.41 * time).cos(),
+                    0.4 + 0.10 * (0.27 * time).cos(),
+                    1.9 * (2.0 + 0.38 * time).cos()
+                );
+                let roll = 0.2 * (0.1 * time).cos();
+                let cw = (ta - ro).normalize();
+                let cp = Vec3::new(roll.sin(), -roll.cos(), 0.0);
+                let cu = cw.cross(&cp).normalize();
+                let cv = cu.cross(&cw).normalize();
+                let rd = (cu *p.x+ cv*p.y + cw*2.0).normalize();
+
+                let light_dir = Vec3::new(0.577, 0.577, -0.577);
+                let color = ray_march(ro, rd, total_time, light_dir);
+                chunk_pixels.push(color);
+            }
+        }
+        chunk_pixels
+    }).collect();
+
+    let mut fb = framebuffer.lock().unwrap();
+    for (&(start_x, start_y), chunk_pixels) in chunks.iter().zip(chunk_results.iter()) {
+        let mut pixel_index = 0;
+        for y in start_y..std::cmp::min(start_y + CHUNK_SIZE, height) {
+            for x in start_x..std::cmp::min(start_x + CHUNK_SIZE, width) {
+                fb.set_pixel(x, y, chunk_pixels[pixel_index]);
+                pixel_index += 1;
+            }
         }
     }
 }
-
-fn ray_march(origin: Vec3, direction: Vec3, time: f32, light_dir: Vec3) -> Pixel {
-    let max_steps = 100;
-    let max_dist = 100.0;
-    let surf_dist = 0.01;
-
-    let mut total_dist = 0.0;
-
-    for _ in 0..max_steps {
-        let p = origin + direction * total_dist;
-        let dist = scene_sdf(p, time);
-        total_dist += dist;
-
-        if dist < surf_dist {
-            let normal = calculate_normal(p, time);
-            let light = (normal.dot(light_dir) * 0.5 + 0.5).max(0.0);
-            let color = (light * 255.0) as u8;
-            return Pixel { r: color, g: color, b: color, a: 255 };
-        }
-
-        if total_dist > max_dist {
-            break;
-        }
-    }
-
-    Pixel { r: 0, g: 0, b: 0, a: 255 }
-}
-
-fn scene_sdf(p: Vec3, time: f32) -> f32 {
-    let rotation = Mat4::from_rotation_y(time) * Mat4::from_rotation_x(time * 0.5);
-    let rotated_p = rotation.transform_point3(p);
-    cube_sdf(rotated_p, Vec3::new(1.0, 1.0, 1.0))
-}
-
-fn cube_sdf(p: Vec3, b: Vec3) -> f32 {
-    let q = p.abs() - b;
-    q.max(Vec3::zero()).length() + q.x.max(q.y.max(q.z)).min(0.0)
-}
-
-fn calculate_normal(p: Vec3, time: f32) -> Vec3 {
-    let eps = 0.01;
-    let center = scene_sdf(p, time);
-    let x = scene_sdf(p + Vec3::new(eps, 0.0, 0.0), time) - center;
-    let y = scene_sdf(p + Vec3::new(0.0, eps, 0.0), time) - center;
-    let z = scene_sdf(p + Vec3::new(0.0, 0.0, eps), time) - center;
-    Vec3::new(x, y, z).normalize()
-}
-
-// fn draw_test_scene(framebuffer: &mut Framebuffer, total_time:f32)
-// {
-//     for x in 0..framebuffer.width {
-//         let normalized_x = x as f32 / framebuffer.width as f32;
-//         let mut sine_value = (total_time + normalized_x * 2.0 * PI).sin();
-//         sine_value *= (total_time*0.5 + normalized_x * 3.0 * PI).cos();        
-//         let y = ((sine_value + 1.0) * 0.5 * framebuffer.height as f32) as usize;
-
-//         // Interpolate color along the x-axis (e.g., from blue to red)
-//         let r = (normalized_x * 255.0) as u8;
-//         let b = ((1.0 - normalized_x) * 255.0) as u8;
-//         let color = Pixel { r, g: 0, b, a: 255 };
-
-//         // Fill the sine wave area with the gradient
-//         for fill_y in y..framebuffer.height {
-//             framebuffer.set_pixel(x, fill_y, color.clone());
-//         }
-//         for fill_y in 0..y {
-//             framebuffer.set_pixel(x, fill_y, Pixel{r:32,g:46,b:64,a:255});
-//         }
-//     }    
-// }
-
 // Drawing the frame
-fn draw(framebuffer: &mut Framebuffer, window: &mut Option<Window>, buffer: &mut Vec<u32>,  terminal_buffer:&mut TerminalBuffer, debug_mode: bool) {
+fn draw(framebuffer: &Arc<Mutex<Framebuffer>>, window: &mut Option<Window>, buffer: &mut Vec<u32>, terminal_buffer: &mut TerminalBuffer, debug_mode: bool) {
+    let mut fb = framebuffer.lock().unwrap();
+    
     // Compute brightness buffer and gradients
-    framebuffer.compute_brightness_buffer(255);
-    //framebuffer.increase_brightness(2.0);
-    framebuffer.increase_contrast(1.0);
-    framebuffer.apply_sharpening(0.5);
-    framebuffer.apply_bayer_dithering();
-    let gradients = compute_gradients(&framebuffer);
+    fb.compute_brightness_buffer(255);
+    fb.increase_contrast(1.0);
+    fb.apply_sharpening(0.5);
+    fb.apply_bayer_dithering();
+    let gradients = compute_gradients(&fb);
 
     // Render to terminal using ncurses
-    draw_colored_frame(&framebuffer, &gradients, terminal_buffer);
+    draw_colored_frame(&fb, &gradients, terminal_buffer);
 
     // If in debug mode, render to minifb window as well
     if debug_mode {
         if let Some(ref mut win) = window {
-            for (i, pixel) in framebuffer.data.iter().enumerate() {
+            for (i, pixel) in fb.data.iter().enumerate() {
                 buffer[i] = ((pixel.r as u32) << 16) | ((pixel.g as u32) << 8) | (pixel.b as u32);
             }
-            win.update_with_buffer(&buffer, framebuffer.width, framebuffer.height).unwrap();
+            win.update_with_buffer(&buffer, fb.width, fb.height).unwrap();
         }
     }
 }
