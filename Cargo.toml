@@ -11,4 +11,5 @@ repository = "https://github.com/avataren/ascii_sobel"
 [dependencies]
 minifb = "0.27"
 ncurses = "5.101.0"
-lazy_static = "1.4.0"
+rayon = "1.10.0"
+lazy_static = "1.5.0"
