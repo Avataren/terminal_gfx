@@ -37,6 +37,7 @@ lazy_static! {
     static ref TERMINAL_COLORS: ColorPalette = ColorPalette::new();
 }
 
+#[derive(Clone, Debug)]
 pub struct Framebuffer {
     pub width: usize, 
     pub height: usize,
