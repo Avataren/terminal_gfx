@@ -7,7 +7,7 @@ use lazy_static::lazy_static;
 use std::sync::Once;
 
 const COLOR_PAIRS: usize = 216; // 6 levels for each R, G, B (6^3 = 216)
-const ANGLE_TO_ASCII_THRESHOLD: f32 = 320.0;
+const ANGLE_TO_ASCII_THRESHOLD: f32 = 240.0;
 
 lazy_static! {
     static ref COLOR_PAIRS_INITIALIZED: Once = Once::new();

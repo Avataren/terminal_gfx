@@ -111,9 +111,11 @@ impl Vec3 {
         Self { x: v, y: v, z: v }
     }
 
-    pub fn dot(&self, other: Vec3) -> f32 {
+
+    pub fn dot(&self, other: &Vec3) -> f32 {
         self.x * other.x + self.y * other.y + self.z * other.z
     }
+
 
     pub fn cross(&self, other: &Vec3) -> Vec3 {
         Vec3 {
@@ -124,7 +126,7 @@ impl Vec3 {
     }
 
     pub fn length(&self) -> f32 {
-        self.dot(*self).sqrt()
+        self.dot(&*self).sqrt()
     }
 
     pub fn normalize(&self) -> Self {
@@ -305,9 +307,24 @@ impl From<&Vec4> for Vec4 {
     }
 }
 
-pub struct Mat4([[f32; 4]; 4]);
+pub struct Mat4(pub [[f32; 4]; 4]);
 
 impl Mat4 {
+
+    pub fn new(
+        m00: f32, m01: f32, m02: f32, m03: f32,
+        m10: f32, m11: f32, m12: f32, m13: f32,
+        m20: f32, m21: f32, m22: f32, m23: f32,
+        m30: f32, m31: f32, m32: f32, m33: f32
+    ) -> Self {
+        Mat4([
+            [m00, m01, m02, m03],
+            [m10, m11, m12, m13],
+            [m20, m21, m22, m23],
+            [m30, m31, m32, m33]
+        ])
+    }
+
     pub fn from_rotation_y(angle: f32) -> Self {
         let (sin, cos) = angle.sin_cos();
         Self([
@@ -328,12 +345,54 @@ impl Mat4 {
         ])
     }
 
+    // New function: rotation around Z-axis
+    pub fn from_rotation_z(angle: f32) -> Self {
+        let (sin, cos) = angle.sin_cos();
+        Self([
+            [cos, -sin, 0.0, 0.0],
+            [sin, cos, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ])
+    }
+
+    // Utility function to combine rotations
+    pub fn from_euler_angles(x_angle: f32, y_angle: f32, z_angle: f32) -> Self {
+        let rot_x = Mat4::from_rotation_x(x_angle);
+        let rot_y = Mat4::from_rotation_y(y_angle);
+        let rot_z = Mat4::from_rotation_z(z_angle);
+        rot_z * rot_y * rot_x // Order matters
+    }
+
     pub fn transform_point3(&self, p: Vec3) -> Vec3 {
         let x = self.0[0][0] * p.x + self.0[0][1] * p.y + self.0[0][2] * p.z + self.0[0][3];
         let y = self.0[1][0] * p.x + self.0[1][1] * p.y + self.0[1][2] * p.z + self.0[1][3];
         let z = self.0[2][0] * p.x + self.0[2][1] * p.y + self.0[2][2] * p.z + self.0[2][3];
         Vec3::new(x, y, z)
     }
+
+    pub fn inverse(&self) -> Self {
+        // This is a simple implementation and might not be numerically stable for all matrices
+        // For a more robust implementation, consider using a full matrix inversion algorithm
+        let mut inv = [[0.0; 4]; 4];
+        let mat = self.0;
+        let det = mat[0][0] * (mat[1][1] * mat[2][2] - mat[2][1] * mat[1][2])
+                - mat[0][1] * (mat[1][0] * mat[2][2] - mat[1][2] * mat[2][0])
+                + mat[0][2] * (mat[1][0] * mat[2][1] - mat[1][1] * mat[2][0]);
+        let inv_det = 1.0 / det;
+
+        inv[0][0] = (mat[1][1] * mat[2][2] - mat[2][1] * mat[1][2]) * inv_det;
+        inv[0][1] = (mat[0][2] * mat[2][1] - mat[0][1] * mat[2][2]) * inv_det;
+        inv[0][2] = (mat[0][1] * mat[1][2] - mat[0][2] * mat[1][1]) * inv_det;
+        inv[1][0] = (mat[1][2] * mat[2][0] - mat[1][0] * mat[2][2]) * inv_det;
+        inv[1][1] = (mat[0][0] * mat[2][2] - mat[0][2] * mat[2][0]) * inv_det;
+        inv[1][2] = (mat[1][0] * mat[0][2] - mat[0][0] * mat[1][2]) * inv_det;
+        inv[2][0] = (mat[1][0] * mat[2][1] - mat[2][0] * mat[1][1]) * inv_det;
+        inv[2][1] = (mat[2][0] * mat[0][1] - mat[0][0] * mat[2][1]) * inv_det;
+        inv[2][2] = (mat[0][0] * mat[1][1] - mat[1][0] * mat[0][1]) * inv_det;
+
+        Mat4(inv)
+    }    
 }
 
 impl Mul for Mat4 {

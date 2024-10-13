@@ -23,7 +23,7 @@ use crate::sobel::compute_gradients;
 use crate::terminal::draw_colored_frame;
 use crate::pixel::Pixel;
 use crate::terminalbuffer::TerminalBuffer;
-use crate::math::{Vec3, Vec2};
+use crate::math::{Vec2, Vec3, Mat4};
 
 const CHUNK_SIZE: usize = 8; 
 
@@ -145,15 +145,32 @@ fn update(delta_time: f32, total_time: f32, framebuffer: &Arc<Mutex<Framebuffer>
     draw_test_scene(framebuffer, total_time);
 }
 
-fn draw_test_scene(framebuffer: &Arc<Mutex<Framebuffer>>, total_time: f32) {
+pub fn draw_test_scene(framebuffer: &Arc<Mutex<Framebuffer>>, total_time: f32) {
     let fb = framebuffer.lock().unwrap();
     let width = fb.width;
     let height = fb.height;
     drop(fb); // Release the lock
 
     let aspect_ratio = width as f32 / height as f32;
-    let time = total_time * 0.25;
-    let anim = 1.1 + 0.5 * (0.1 * total_time).cos().smoothstep(-0.3, 0.3);
+
+    // Camera setup
+    let camera_radius = 8.0;
+    let camera_height = 3.0 + (total_time * 0.2).sin();
+    let camera_angle = total_time * 0.5;
+
+    let eye = Vec3::new(0.0, 1.25, -1.75); // Positioned at (0, 5, 5)
+    let target = Vec3::new(0.0, 0.0, 0.0); // Looking directly at the origin
+    let up = Vec3::new(0.0, 1.0, 0.0);    
+
+    // let eye = Vec3::new(
+    //     camera_radius * camera_angle.cos(),
+    //     camera_height,
+    //     camera_radius * camera_angle.sin()
+    // );
+    // let target = Vec3::new(0.0, 1.0, 0.0); // Look at the center of the scene, slightly above the ground
+    // let up = Vec3::new(0.0, 1.0, 0.0);
+
+    let view_matrix = look_at(eye, target, up);
 
     let chunks: Vec<_> = (0..height)
         .step_by(CHUNK_SIZE)
@@ -166,29 +183,11 @@ fn draw_test_scene(framebuffer: &Arc<Mutex<Framebuffer>>, total_time: f32) {
         let mut chunk_pixels = Vec::with_capacity(CHUNK_SIZE * CHUNK_SIZE);
         for y in start_y..std::cmp::min(start_y + CHUNK_SIZE, height) {
             for x in start_x..std::cmp::min(start_x + CHUNK_SIZE, width) {
-                let q = Vec2::new(x as f32, y as f32);
-                let p = (q * 2.0 - Vec2::new(width as f32, height as f32)) / height as f32;
+                let ndc_x = (2.0 * x as f32 / width as f32 - 1.0) * aspect_ratio;
+                let ndc_y = 1.0 - 2.0 * y as f32 / height as f32;
+                let ray_dir = calculate_ray_direction(ndc_x, ndc_y, &view_matrix);
 
-                // camera
-                let ro = Vec3::new(
-                    2.8 * (0.1 + 0.33 * time).cos(),
-                    0.4 + 0.30 * (0.37 * time).cos(),
-                    2.8 * (0.5 + 0.35 * time).cos()
-                );
-                let ta = Vec3::new(
-                    1.9 * (1.2 + 0.41 * time).cos(),
-                    0.4 + 0.10 * (0.27 * time).cos(),
-                    1.9 * (2.0 + 0.38 * time).cos()
-                );
-                let roll = 0.2 * (0.1 * time).cos();
-                let cw = (ta - ro).normalize();
-                let cp = Vec3::new(roll.sin(), -roll.cos(), 0.0);
-                let cu = cw.cross(&cp).normalize();
-                let cv = cu.cross(&cw).normalize();
-                let rd = (cu *p.x+ cv*p.y + cw*2.0).normalize();
-
-                let light_dir = Vec3::new(0.577, 0.577, -0.577);
-                let color = ray_march(ro, rd, total_time, light_dir);
+                let color = ray_march(eye, ray_dir, total_time);
                 chunk_pixels.push(color);
             }
         }
@@ -206,14 +205,44 @@ fn draw_test_scene(framebuffer: &Arc<Mutex<Framebuffer>>, total_time: f32) {
         }
     }
 }
-// Drawing the frame
+
+fn look_at(eye: Vec3, target: Vec3, up: Vec3) -> Mat4 {
+    let f = (target - eye).normalize();
+    let s = f.cross(&up).normalize();
+    let u = s.cross(&f);
+
+    Mat4([
+        [s.x, u.x, -f.x, 0.0],
+        [s.y, u.y, -f.y, 0.0],
+        [s.z, u.z, -f.z, 0.0],
+        [-s.dot(&eye), -u.dot(&eye), f.dot(&eye), 1.0]
+    ])
+}
+
+fn calculate_ray_direction(ndc_x: f32, ndc_y: f32, view_matrix: &Mat4) -> Vec3 {
+    let fov = 45.0f32.to_radians(); // Adjusted field of view
+    let tan_fov = (fov * 0.5).tan();
+    
+    // Adjust y scaling to account for font aspect ratio (twice as high as wide)
+    let adjusted_ndc_y = ndc_y * 2.0;
+    
+    let ray_target = Vec3::new(ndc_x * tan_fov, adjusted_ndc_y * tan_fov, -1.0);
+    
+    // Apply the inverse view matrix transformation
+    let inv_view = view_matrix.inverse();
+    let world_ray = inv_view.transform_point3(ray_target);
+    
+    (world_ray - Vec3::zero()).normalize()
+}
+
 fn draw(framebuffer: &Arc<Mutex<Framebuffer>>, window: &mut Option<Window>, buffer: &mut Vec<u32>, terminal_buffer: &mut TerminalBuffer, debug_mode: bool) {
     let mut fb = framebuffer.lock().unwrap();
     
     // Compute brightness buffer and gradients
-    fb.compute_brightness_buffer(255);
-    fb.increase_contrast(1.0);
-    fb.apply_sharpening(0.5);
+    fb.compute_brightness_buffer(32);
+    fb.increase_brightness(1.6);
+    fb.increase_contrast(1.25);
+    fb.apply_sharpening(1.25);
     fb.apply_bayer_dithering();
     let gradients = compute_gradients(&fb);
 
