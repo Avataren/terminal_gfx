@@ -145,7 +145,7 @@ impl Framebuffer {
     }
 
     pub fn apply_sharpening(&mut self, sharpening_factor: f32) {
-        let mut temp_buffer = self.brightness_buffer.clone();
+        let temp_buffer = self.brightness_buffer.clone();
 
         for y in 1..self.height - 1 {
             for x in 1..self.width - 1 {

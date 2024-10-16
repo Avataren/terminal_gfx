@@ -1,10 +1,8 @@
 use std::sync::{Arc, Mutex};
 
-use math::Smoothstep;
 use ncurses::*;
 use raymarch::{ray_march, update_globals};
 use std::env;
-use std::f32::consts::PI;
 use minifb::{Window, WindowOptions};
 use std::time::Instant;
 use rayon::prelude::*;
@@ -69,7 +67,7 @@ fn main() {
         vec![]
     };
 
-    let mut total_elapsed_time = 0.0;
+    let total_elapsed_time = 0.0;
     let start_time = Instant::now();
     
     let mut prev_width;
@@ -240,7 +238,7 @@ fn draw(framebuffer: &Arc<Mutex<Framebuffer>>, window: &mut Option<Window>, buff
     
     // Compute brightness buffer and gradients
     fb.compute_brightness_buffer(32);
-    fb.increase_brightness(1.6);
+//    fb.increase_brightness(1.5);
     fb.increase_contrast(1.25);
     fb.apply_sharpening(1.25);
     fb.apply_bayer_dithering();

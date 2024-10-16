@@ -7,7 +7,7 @@ use lazy_static::lazy_static;
 use std::sync::Once;
 
 const COLOR_PAIRS: usize = 216; // 6 levels for each R, G, B (6^3 = 216)
-const ANGLE_TO_ASCII_THRESHOLD: f32 = 240.0;
+const ANGLE_TO_ASCII_THRESHOLD: f32 = 140.0;
 
 lazy_static! {
     static ref COLOR_PAIRS_INITIALIZED: Once = Once::new();
@@ -86,19 +86,19 @@ pub fn draw_colored_frame(fb: &Framebuffer, gradients: &[(f32, f32)], buffer: &m
                 brightness_to_ascii(brightness, false)
             };
 
-            let (r, g, b) = if magnitude > ANGLE_TO_ASCII_THRESHOLD {
-                average_neighbor_colors(fb, x, y)
-            } else {
-                fb.get_pixel(x, y).to_rgb()
-            };
+            //let (r, g, b) = if magnitude > ANGLE_TO_ASCII_THRESHOLD {
+            //    average_neighbor_colors(fb, x, y)
+            //} else {
+            let (r, g, b) =    fb.get_pixel(x, y).to_rgb();
+            //};
 
-            if is_true_color {
-                // Note: True color support might need to be handled differently with double buffering
-                buffer.set_char(x, y, ch, 0);
-            } else {
+//            if is_true_color {
+//                // Note: True color support might need to be handled differently with double buffering
+//                buffer.set_char(x, y, ch, 0);
+//            } else {
                 let color_pair = get_closest_color_pair(r, g, b);
                 buffer.set_char(x, y, ch, color_pair);
-            }
+ //           }
         }
     }
 

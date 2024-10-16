@@ -1,10 +1,9 @@
 // raymarch.rs
 
-use crate::math::{Vec2, Vec3, Vec4, Mat4};
+use crate::math::{Vec2, Vec3, Mat4};
 use crate::pixel::Pixel;
 use std::sync::LazyLock;
 use std::sync::Mutex;
-use std::f32::consts::PI;
 
 struct ShaderGlobals {
     resolution: Vec2,
@@ -46,8 +45,8 @@ pub fn ray_march(origin: Vec3, direction: Vec3, time: f32) -> Pixel {
     );
 
     // Raymarching setup
-    let max_steps = 200;
-    let max_dist = 2000.0;
+    let max_steps = 500;
+    let max_dist = 1500.0;
     let epsilon = 0.001;
 
     let mut t = 0.0;
@@ -74,7 +73,7 @@ pub fn ray_march(origin: Vec3, direction: Vec3, time: f32) -> Pixel {
 
     // Background color (sky)
     let t = 0.5 * (direction.y + 1.0);
-    let sky_color = Vec3::new(0.5, 0.7, 1.0).lerp(&Vec3::new(1.0, 1.0, 1.0), t);
+    let sky_color = Vec3::new(0.25, 0.37, 0.5).lerp(&Vec3::new(1.0, 1.0, 1.0), t);
     vec3_to_pixel(sky_color)
 }
 
@@ -188,7 +187,7 @@ fn shade(
     let light_color = Vec3::new(1.0, 1.0, 1.0);
     let object_color = if p.y < -0.99 {
         // Checkerboard floor
-        let pattern = ((p.x * 0.25).floor() as i32 + (p.z * 0.25).floor() as i32) & 1;
+        let pattern = ((p.x * 0.5).floor() as i32 + (p.z * 0.5).floor() as i32) & 1;
         if pattern == 0 {
             Vec3::new(0.12, 0.14, 0.16)
         } else {
@@ -197,9 +196,9 @@ fn shade(
     } else {
         // Cube color based on position
         Vec3::new(
-            (p.x.sin() * 0.5 + 0.5),
-            (p.y.sin() * 0.5 + 0.5),
-            (p.z.sin() * 0.5 + 0.5)
+            p.x.sin() * 0.5 + 0.5,
+            p.y.sin() * 0.5 + 0.5,
+            p.z.sin() * 0.5 + 0.5
         )
     };
 
